@@ -1,11 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { Config } from '@sveltejs/adapter-vercel';
 import type { RequestHandler } from './$types';
-import { ref, set, update } from 'firebase/database';
 import { generateSlug } from 'random-word-slugs';
-import { db, loadChatFromDb } from '$misc/firebase';
 import type { Chat } from '$misc/shared';
 import { respondToClient, throwIfUnset, getErrorMessage } from '$misc/error';
+import storageService from '$misc/storageService';
 
 // this tells Vercel to run this function as https://vercel.com/docs/concepts/functions/edge-functions
 export const config: Config = {
@@ -18,7 +17,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		throw new Error('missing URL param: slug');
 	}
 
-	const chat = await loadChatFromDb(slug);
+	const chat = await storageService.getItem<Chat>(slug);
 	if (!chat) {
 		throw error(404, 'Chat not found');
 	}
@@ -42,7 +41,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// The updateToken is like a "password" for later edits
 		let updateToken: string = chat.updateToken || generateSlug();
 
-		const savedDocument = await loadChatFromDb(slug);
+		const savedDocument = await storageService.getItem<Chat>(slug);
 		// already saved
 		if (savedDocument) {
 			// updateToken is wrong or this slug has already been saved ("duplicate ID")
@@ -59,8 +58,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			updateToken
 		};
 
-		// save to firebase
-		await set(ref(db, `sharedchats/${slug}`), documentToSave);
+		// save to storage service
+		await storageService.setItem(slug, documentToSave);
 
 		return respondToClient({ slug, updateToken });
 	} catch (err) {
@@ -76,11 +75,10 @@ export const DELETE: RequestHandler = async ({ request }) => {
 
 		if (!Object.keys(requestData)?.length) throw new Error('No docs to delete provided');
 
-		const updates: Record<string, any> = {};
 		const deleted: string[] = [];
 
 		for (const [slug, updateToken] of Object.entries(requestData)) {
-			const savedDocument = await loadChatFromDb(slug);
+			const savedDocument = await storageService.getItem<Chat>(slug);
 			// already saved
 			if (savedDocument) {
 				// updateToken is wrong
@@ -88,14 +86,9 @@ export const DELETE: RequestHandler = async ({ request }) => {
 					// in this case we just create a new share
 					throw new Error(`Wrong update token for chat ${slug}. Cannot delete.`);
 				}
-				updates[`sharedchats/${slug}`] = null;
+				await storageService.removeItem(slug);
 				deleted.push(slug);
 			}
-		}
-
-		if (deleted.length) {
-			// delete in firebase
-			await update(ref(db), updates);
 		}
 
 		return respondToClient({ deleted });

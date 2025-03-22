@@ -9,6 +9,7 @@ import {
 	FIREBASE_MESSAGINGSENDERID,
 	FIREBASE_APPID
 } from '$env/static/private';
+import { STORAGE_TYPE } from '$env/static/public';
 import type { Chat, ChatMessage } from './shared';
 
 /**
@@ -21,29 +22,36 @@ const throwIfUnset = (name: string, value: any) => {
 	if (value == null) throw new Error(`${name} environment variable missing`);
 };
 
-throwIfUnset(FIREBASE_APIKEY, 'FIREBASE_APIKEY');
-throwIfUnset(FIREBASE_AUTHDOMAIN, 'FIREBASE_AUTHDOMAIN');
-throwIfUnset(FIREBASE_PROJECTID, 'FIREBASE_PROJECTID');
-throwIfUnset(FIREBASE_DATABASEURL, 'FIREBASE_DATABASEURL');
-throwIfUnset(FIREBASE_STORAGEBUCKET, 'FIREBASE_STORAGEBUCKET');
-throwIfUnset(FIREBASE_MESSAGINGSENDERID, 'FIREBASE_MESSAGINGSENDERID');
-throwIfUnset(FIREBASE_APPID, 'FIREBASE_APPID');
+if (STORAGE_TYPE === 'firebase') {
+	throwIfUnset(FIREBASE_APIKEY, 'FIREBASE_APIKEY');
+	throwIfUnset(FIREBASE_AUTHDOMAIN, 'FIREBASE_AUTHDOMAIN');
+	throwIfUnset(FIREBASE_PROJECTID, 'FIREBASE_PROJECTID');
+	throwIfUnset(FIREBASE_DATABASEURL, 'FIREBASE_DATABASEURL');
+	throwIfUnset(FIREBASE_STORAGEBUCKET, 'FIREBASE_STORAGEBUCKET');
+	throwIfUnset(FIREBASE_MESSAGINGSENDERID, 'FIREBASE_MESSAGINGSENDERID');
+	throwIfUnset(FIREBASE_APPID, 'FIREBASE_APPID');
 
-const firebaseConfig = {
-	apiKey: FIREBASE_APIKEY,
-	authDomain: FIREBASE_AUTHDOMAIN,
-	projectId: FIREBASE_PROJECTID,
-	storageBucket: FIREBASE_STORAGEBUCKET,
-	messagingSenderId: FIREBASE_MESSAGINGSENDERID,
-	appId: FIREBASE_APPID,
-	databaseURL: FIREBASE_DATABASEURL
-};
+	const firebaseConfig = {
+		apiKey: FIREBASE_APIKEY,
+		authDomain: FIREBASE_AUTHDOMAIN,
+		projectId: FIREBASE_PROJECTID,
+		storageBucket: FIREBASE_STORAGEBUCKET,
+		messagingSenderId: FIREBASE_MESSAGINGSENDERID,
+		appId: FIREBASE_APPID,
+		databaseURL: FIREBASE_DATABASEURL
+	};
 
-const app = initializeApp(firebaseConfig);
+	const app = initializeApp(firebaseConfig);
 
-export const db = getDatabase(app);
+	export const db = getDatabase(app);
+}
 
 export async function loadChatFromDb(slug: string) {
+	if (STORAGE_TYPE !== 'firebase') {
+		console.log('Firebase is disabled. Skipping loadChatFromDb.');
+		return null;
+	}
+
 	const response = (await get(ref(db, `sharedchats/${slug}`))).toJSON() as Chat;
 
 	// firebase stores array as objects like { 0: whatever, 1: whateverelse }
