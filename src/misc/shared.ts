@@ -25,6 +25,7 @@ import {
 	PUBLIC_OPENAI_API_URL
 } from '$env/static/public';
 import { AuthService } from './authService';
+import storageService from './storageService';
 
 export interface ChatContent {
 	type: 'text' | 'image_url';
@@ -255,4 +256,16 @@ export function showToast(
 		action
 	};
 	toastStore.trigger(toast);
+}
+
+export async function saveChat(slug: string, chat: Chat) {
+	await storageService.setItem(slug, chat);
+}
+
+export async function loadChat(slug: string): Promise<Chat | null> {
+	return await storageService.getItem<Chat>(slug);
+}
+
+export async function deleteChat(slug: string): Promise<boolean> {
+	return await storageService.removeItem(slug);
 }

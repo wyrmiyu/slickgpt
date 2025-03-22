@@ -1,4 +1,8 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { DATABASE_URL, STORAGE_TYPE } from '$env/static/public';
+import { db, loadChatFromDb } from '$misc/firebase';
+import { ref, set, update } from 'firebase/database';
+import { connectToMongoDB, getMongoDBItem, setMongoDBItem, removeMongoDBItem, clearMongoDB } from '$misc/mongodb';
 
 interface StorageService {
 	getItem<T>(key: string): Promise<T | null>;
@@ -123,15 +127,169 @@ class InMemoryStorageService implements StorageService {
 	}
 }
 
+class SelfHostedStorageService implements StorageService {
+	private baseUrl: string;
+
+	constructor(baseUrl: string) {
+		this.baseUrl = baseUrl;
+	}
+
+	async getItem<T>(key: string): Promise<T | null> {
+		try {
+			const response = await fetch(`${this.baseUrl}/${key}`);
+			if (!response.ok) {
+				throw new Error('Failed to fetch item');
+			}
+			return await response.json();
+		} catch (error) {
+			console.error('Error in getItem:', error);
+			return null;
+		}
+	}
+
+	async setItem<T>(key: string, value: T): Promise<void> {
+		try {
+			const response = await fetch(`${this.baseUrl}/${key}`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(value)
+			});
+			if (!response.ok) {
+				throw new Error('Failed to set item');
+			}
+		} catch (error) {
+			console.error('Error in setItem:', error);
+		}
+	}
+
+	async removeItem(key: string): Promise<boolean> {
+		try {
+			const response = await fetch(`${this.baseUrl}/${key}`, {
+				method: 'DELETE'
+			});
+			if (!response.ok) {
+				throw new Error('Failed to remove item');
+			}
+			return true;
+		} catch (error) {
+			console.error('Error in removeItem:', error);
+			return false;
+		}
+	}
+
+	async clear(): Promise<void> {
+		try {
+			const response = await fetch(`${this.baseUrl}/clear`, {
+				method: 'POST'
+			});
+			if (!response.ok) {
+				throw new Error('Failed to clear items');
+			}
+		} catch (error) {
+			console.error('Error in clear:', error);
+		}
+	}
+}
+
+class FirebaseStorageService implements StorageService {
+	async getItem<T>(key: string): Promise<T | null> {
+		try {
+			const response = await loadChatFromDb(key);
+			return response as T;
+		} catch (error) {
+			console.error('Error in getItem:', error);
+			return null;
+		}
+	}
+
+	async setItem<T>(key: string, value: T): Promise<void> {
+		try {
+			await set(ref(db, `sharedchats/${key}`), value);
+		} catch (error) {
+			console.error('Error in setItem:', error);
+		}
+	}
+
+	async removeItem(key: string): Promise<boolean> {
+		try {
+			await update(ref(db), { [`sharedchats/${key}`]: null });
+			return true;
+		} catch (error) {
+			console.error('Error in removeItem:', error);
+			return false;
+		}
+	}
+
+	async clear(): Promise<void> {
+		try {
+			// Implement clear logic if needed
+		} catch (error) {
+			console.error('Error in clear:', error);
+		}
+	}
+}
+
+class MongoDBStorageService implements StorageService {
+	async getItem<T>(key: string): Promise<T | null> {
+		try {
+			return await getMongoDBItem<T>(key);
+		} catch (error) {
+			console.error('Error in getItem:', error);
+			return null;
+		}
+	}
+
+	async setItem<T>(key: string, value: T): Promise<void> {
+		try {
+			await setMongoDBItem(key, value);
+		} catch (error) {
+			console.error('Error in setItem:', error);
+		}
+	}
+
+	async removeItem(key: string): Promise<boolean> {
+		try {
+			await removeMongoDBItem(key);
+			return true;
+		} catch (error) {
+			console.error('Error in removeItem:', error);
+			return false;
+		}
+	}
+
+	async clear(): Promise<void> {
+		try {
+			await clearMongoDB();
+		} catch (error) {
+			console.error('Error in clear:', error);
+		}
+	}
+}
+
 const createStorageService = async (): Promise<StorageService> => {
-	if (typeof window !== 'undefined' && 'indexedDB' in window) {
-		const idbService = new IdbStorageService();
-
-		// migrate old chat to indexedDb
-		await idbService.migrateLocalStorageToIndexedDB();
-		await idbService.initDb();
-
-		return idbService;
+	switch (STORAGE_TYPE) {
+		case 'self-hosted':
+			if (DATABASE_URL) {
+				return new SelfHostedStorageService(DATABASE_URL);
+			}
+			break;
+		case 'firebase':
+			return new FirebaseStorageService();
+		case 'mongodb':
+			await connectToMongoDB(DATABASE_URL);
+			return new MongoDBStorageService();
+		case 'local':
+			if (typeof window !== 'undefined' && 'indexedDB' in window) {
+				const idbService = new IdbStorageService();
+				await idbService.migrateLocalStorageToIndexedDB();
+				await idbService.initDb();
+				return idbService;
+			}
+			break;
+		default:
+			return new InMemoryStorageService();
 	}
 	return new InMemoryStorageService();
 };
